@@ -8,15 +8,41 @@
 #include <tgmath.h>
 #include <sys/stat.h>
 
-#define IMG_RES 800
-#define ALIAS_LEN 2
-#define ALIAS_AREA (ALIAS_LEN * ALIAS_LEN)
-#define RAW_PIX_CNT (IMG_RES * IMG_RES * ALIAS_AREA)
+#define IMG_RES      800
 #define PRE_ITER_CNT 200
 #define IIM_ITER_CNT 2000000000
+#define QUEUE_SIZE   (64 * 1024 * 1024)
+#define MAX_HIT      1000
 #define ORBIT_ITER_CNT 10000000
-#define QUEUE_SIZE (64 * 1024 * 1024)
-#define MAX_HIT 1000
+// Antialiasing
+#define ALIAS_LEN 2
+#define ALIAS_PTS (ALIAS_LEN * ALIAS_LEN)
+#define RAW_PIX_CNT (IMG_RES * IMG_RES * ALIAS_PTS)
+
+// Notes on some of the parameters above:
+//
+// Arguably the most important parameter is MAX_HIT, which is the number of
+// times a pixel must be hit to stop being considered for further iteration.
+// This cutoff is the modification that gives the process the name "modified"
+// inverse iteration method.
+//
+// Getting the "lobes" to touch is very difficult for parabolic parameters.
+// Even with MAX_HIT = 1000, there are large gaps; but only so much computing
+// power can be lavished on it, and there's only so much that brute force can
+// accomplish. To get good results for these cases, a better method is required,
+// like distance estimation. Execution time increases rapidly with increasing
+// MAX_HIT.
+//
+// The QUEUE_SIZE should be big enough that points encountered in the breadth
+// first search are not lost unnecessarily because of space constraint, as much
+// as possible.
+//
+// For IIM_ITER_COUNT, bigger values are obviously better. For a particular
+// resolution, MAX_HIT, QUEUE_SIZE, and possibly starting value, I suspect the
+// process saturates at some point. The IIM_ITER_COUNT should be big enough to
+// not cut off the process too long before that. Otherwise, execution time does
+// not seem to increase dramatically with this parameter, so it can be set to a
+// quite high value.
 
 #define MIN(a, b) ((a) < (b) ? a : (b))
 #define ARRAY_LEN(a) ((sizeof a) / (sizeof a[0]))
@@ -35,7 +61,7 @@ static void write_pgm(uint8_t *image, const char *name) {
 static void antialias(uint32_t *hit_counts, uint8_t *image) {
     for (int i = 0; i < IMG_RES; i++) {
         for (int j = 0; j < IMG_RES; j++) {
-            int idx = i * IMG_RES * ALIAS_AREA + j * ALIAS_LEN;
+            int idx = i * IMG_RES * ALIAS_PTS + j * ALIAS_LEN;
             // "unroll" a 2 * 2 loop
             int sum = (hit_counts[idx] > 0) + (hit_counts[idx + 1] > 0);
             idx += IMG_RES * ALIAS_LEN;
@@ -70,6 +96,8 @@ static double complex pre_iterate(double complex c) {
     return z;
 }
 
+// ---------- Simple circular queue implementation ----------
+
 static struct {
     int head, tail;
     double complex values[QUEUE_SIZE];
@@ -94,6 +122,8 @@ static int queue_full() {
     int dist = iim_queue.tail - iim_queue.head;
     return dist == 1 || dist == QUEUE_SIZE - 1;
 }
+
+// ----------------------------------------------------------
 
 static int c2idx(double complex z) {
     double x = creal(z), y = cimag(z);
@@ -166,7 +196,9 @@ int main() {
         printf("\r%2d/%lu", i, ARRAY_LEN(farey));
         fflush(stdout);
         memset(hit_counts, 0, RAW_PIX_CNT * sizeof *hit_counts);
+        // Scan period-2 lobe boundary
         // double complex param = -1 + 0.25 * exp(2 * M_PI * I * farey[i]);
+        // Or, scan main cardioid boundary
         double complex z = 0.5 * exp(2 * M_PI * I * farey[i]);
         double complex param = z * (1 - z);
         julia_miim(hit_counts, param);
