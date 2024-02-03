@@ -139,9 +139,10 @@ static void handle_value(uint32_t *hit_counts, double complex z) {
         queue_push(z);
 }
 
-static void julia_miim(uint32_t *hit_counts, double complex c) {
+static int julia_miim(uint32_t *hit_counts, double complex c) {
     queue_push(pre_iterate(c));
-    for (int i = 0; i < IIM_ITER_CNT; i++) {
+    int i;
+    for (i = 0; i < IIM_ITER_CNT; i++) {
         if (queue_empty()) break;
         double complex p = queue_pop();
         int idx = c2idx(p);
@@ -150,6 +151,7 @@ static void julia_miim(uint32_t *hit_counts, double complex c) {
         handle_value(hit_counts, z);
         handle_value(hit_counts, -z);
     }
+    return i;
 }
 
 static void draw_orbit(uint32_t *hit_counts, double complex c) {
