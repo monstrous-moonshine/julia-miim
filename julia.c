@@ -13,7 +13,8 @@
 #define ALIAS_AREA (ALIAS_LEN * ALIAS_LEN)
 #define RAW_PIX_CNT (IMG_RES * IMG_RES * ALIAS_AREA)
 #define PRE_ITER_CNT 200
-#define ITER_CNT 2000000000
+#define IIM_ITER_CNT 2000000000
+#define ORBIT_ITER_CNT 10000000
 #define QUEUE_SIZE (64 * 1024 * 1024)
 #define MAX_HIT 1000
 
@@ -110,7 +111,7 @@ static void handle_value(uint32_t *hit_counts, double complex z) {
 
 static void julia_miim(uint32_t *hit_counts, double complex c) {
     queue_push(pre_iterate(c));
-    for (int i = 0; i < ITER_CNT; i++) {
+    for (int i = 0; i < IIM_ITER_CNT; i++) {
         if (queue_empty()) break;
         double complex p = queue_pop();
         int idx = c2idx(p);
@@ -118,6 +119,15 @@ static void julia_miim(uint32_t *hit_counts, double complex c) {
         double complex z = sqrt(p - c);
         handle_value(hit_counts, z);
         handle_value(hit_counts, -z);
+    }
+}
+
+static void draw_orbit(uint32_t *hit_counts, double complex c) {
+    double complex z = 0;
+    for (int i = 0; i < ORBIT_ITER_CNT; i++) {
+        int idx = c2idx(z);
+        hit_counts[idx]++;
+        z = z * z + c;
     }
 }
 
@@ -160,6 +170,7 @@ int main() {
         double complex z = 0.5 * exp(2 * M_PI * I * farey[i]);
         double complex param = z * (1 - z);
         julia_miim(hit_counts, param);
+        draw_orbit(hit_counts, param);
         antialias(hit_counts, image);
         sprintf(name, "images/out%02d.pgm", i);
         write_pgm(image, name);
